@@ -1,289 +1,146 @@
-/**
- * Authentication service.
- *
- * Endpoint map (future DRF):
- *   POST   /api/auth/login/              → login
- *   POST   /api/auth/register/student/   → registerStudent
- *   POST   /api/auth/register/company/   → registerCompany
- *   POST   /api/auth/refresh/            → refresh
- *   POST   /api/auth/logout/             → logout
- *   GET    /api/auth/me/                 → me
- *   POST   /api/auth/password-reset/     → requestPasswordReset (architected, see docs)
- */
-
-import { badRequest, notFound, unauthorized } from '../types/api';
+import { badRequest, unauthorized, ApiError } from '../types/api';
 import type { UserRole } from '../types/enums';
-import type { CompanyProfile, StudentProfile, User } from '../types/models';
-import { UNIVERSITY, DEMO_PASSWORD } from '../data/seedPeople';
-import { nextId, nowISO, pushNotification, read, write } from './store';
-import type { Database } from './store';
-import { issueTokens, getSession, isExpired, setSession } from './session';
 import type { Session } from './session';
-import { request } from './transport';
+import { setSession, getSession, issueTokens } from './session';
+import { apiFetch } from './apiClient';
 
-function profileIdFor(database: Database, user: User): string {
-  switch (user.role) {
-    case 'STUDENT':
-      return database.students.find((s) => s.userId === user.id)?.id ?? '';
-    case 'COMPANY':
-      return database.companies.find((c) => c.userId === user.id)?.id ?? '';
-    case 'SUPERVISOR':
-      return database.supervisors.find((s) => s.userId === user.id)?.id ?? '';
-    case 'COORDINATOR':
-    case 'ADMIN':
-      return database.coordinators.find((c) => c.userId === user.id)?.id ?? '';
-    default:
-      return '';
+export const PUBLIC_REGISTRATION_ROLES: UserRole[] = ['STUDENT', 'COMPANY'];
+
+async function handleResponse(res: Response) {
+  if (res.ok) {
+    if (res.status === 204) return null;
+    return await res.json();
+  }
+  const data = await res.json().catch(() => null);
+  
+  if (res.status === 400) {
+    throw badRequest(data || { detail: ['Invalid request'] });
+  } else if (res.status === 401 || res.status === 403) {
+    throw unauthorized(data?.detail || 'Unauthorized');
+  } else {
+    throw new ApiError(res.status, data || { detail: 'Server error', code: 'server_error' });
   }
 }
 
-function buildSession(database: Database, user: User): Session {
+function mapUserResponseToSession(data: any): Session {
+  // Django rest framework returns user, access, refresh
+  // we map this to the frontend Session interface
   return {
-    user,
-    role: user.role,
-    profileId: profileIdFor(database, user),
-    tokens: issueTokens(user.id)
+    user: {
+      id: data.user.id.toString(),
+      email: data.user.email,
+      fullName: `${data.user.first_name} ${data.user.last_name}`.trim(),
+      role: data.user.role as UserRole,
+      phone: '', // Can be extended to fetch from profile
+      isActive: true,
+      dateJoined: new Date().toISOString(),
+      lastLogin: new Date().toISOString(),
+    },
+    role: data.user.role as UserRole,
+    profileId: data.user.profileId, // We added this to the serializer
+    tokens: {
+      access: data.access,
+      refresh: data.refresh
+    }
   };
 }
 
-export function login(email: string, password: string): Promise<Session> {
-  return request(() =>
-  write((db) => {
-    const normalized = email.trim().toLowerCase();
-    const credential = db.credentials.find((c) => c.email.toLowerCase() === normalized);
-    if (!credential || credential.password !== password) {
-      // Deliberately non-specific: never reveal whether the account exists.
-      throw unauthorized('No active account was found with the supplied credentials.');
-    }
-    const user = db.users.find((u) => u.id === credential.userId);
-    if (!user || !user.isActive) {
-      throw unauthorized('This account is not active. Contact the attachment office.');
-    }
-    user.lastLogin = nowISO();
-    const session = buildSession(db, user);
-    setSession(session);
-    return session;
-  })
-  );
-}
-
-/** Demo convenience: sign in as a seeded persona without typing the shared password. */
-export function loginAsDemo(email: string): Promise<Session> {
-  return login(email, DEMO_PASSWORD);
-}
-
-export interface StudentRegistration {
-  fullName: string;
-  email: string;
-  phone: string;
-  password: string;
-  studentNumber: string;
-  university: string;
-  programme: string;
-  yearOfStudy: number;
-}
-
-export function registerStudent(input: StudentRegistration): Promise<Session> {
-  return request(() =>
-  write((db) => {
-    assertEmailAvailable(db, input.email);
-    const userId = nextId('u-std');
-    const user: User = {
-      id: userId,
-      email: input.email.trim(),
-      phone: input.phone,
-      role: 'STUDENT',
-      fullName: input.fullName,
-      isActive: true,
-      dateJoined: nowISO(),
-      lastLogin: nowISO()
-    };
-    const profile: StudentProfile = {
-      id: nextId('std'),
-      userId,
-      fullName: input.fullName,
-      email: input.email.trim(),
-      phone: input.phone,
-      gender: null,
-      dateOfBirth: null,
-      address: null,
-      studentNumber: input.studentNumber,
-      university: input.university || UNIVERSITY,
-      faculty: 'Faculty of Science, Engineering and Technology',
-      department: '',
-      programme: input.programme,
-      yearOfStudy: input.yearOfStudy,
-      expectedGraduation: '',
-      bio: null,
-      skills: [],
-      createdAt: nowISO(),
-      updatedAt: nowISO()
-    };
-    db.users.push(user);
-    db.students.push(profile);
-    db.credentials.push({ userId, email: user.email, password: input.password });
-    pushNotification(db, {
-      userId,
-      type: 'SYSTEM',
-      title: 'Welcome to AttachHub',
-      message:
-      'Complete your profile and upload your CV, introduction letter and insurance cover before applying.',
-      link: '/student/profile'
-    });
-    const session = buildSession(db, user);
-    setSession(session);
-    return session;
-  })
-  );
-}
-
-export interface CompanyRegistration {
-  name: string;
-  email: string;
-  phone: string;
-  password: string;
-  location: string;
-  town: string;
-  industry: string;
-}
-
-export function registerCompany(input: CompanyRegistration): Promise<Session> {
-  return request(() =>
-  write((db) => {
-    assertEmailAvailable(db, input.email);
-    const userId = nextId('u-co');
-    const user: User = {
-      id: userId,
-      email: input.email.trim(),
-      phone: input.phone,
-      role: 'COMPANY',
-      fullName: input.name,
-      isActive: true,
-      dateJoined: nowISO(),
-      lastLogin: nowISO()
-    };
-    const profile: CompanyProfile = {
-      id: nextId('co'),
-      userId,
-      name: input.name,
-      email: input.email.trim(),
-      phone: input.phone,
-      industry: input.industry,
-      location: input.location,
-      town: input.town,
-      website: null,
-      registrationNumber: null,
-      description: '',
-      logoText: initials(input.name),
-      verificationStatus: 'REGISTERED',
-      createdAt: nowISO()
-    };
-    db.users.push(user);
-    db.companies.push(profile);
-    db.credentials.push({ userId, email: user.email, password: input.password });
-    pushNotification(db, {
-      userId,
-      type: 'COMPANY',
-      title: 'Complete your verification',
-      message:
-      'Submit your registration details for university verification. Opportunities can only be published once your organisation is verified.',
-      link: '/company/profile'
-    });
-    const session = buildSession(db, user);
-    setSession(session);
-    return session;
-  })
-  );
-}
-
-function assertEmailAvailable(db: Database, email: string) {
-  const normalized = email.trim().toLowerCase();
-  if (db.credentials.some((c) => c.email.toLowerCase() === normalized)) {
-    throw badRequest({ email: ['An account with this email address already exists.'] });
-  }
-}
-
-function initials(name: string) {
-  return name.
-  split(/\s+/).
-  filter(Boolean).
-  slice(0, 2).
-  map((w) => w[0]?.toUpperCase() ?? '').
-  join('');
-}
-
-/** Coordinator and supervisor accounts are never created through public registration. */
-export const PUBLIC_REGISTRATION_ROLES: UserRole[] = ['STUDENT', 'COMPANY'];
-
-export function refresh(): Promise<Session> {
-  return request(() => {
-    const session = getSession();
-    if (!session || isExpired(session.tokens.refresh)) {
-      setSession(null);
-      throw unauthorized('Your session has expired. Please sign in again.');
-    }
-    const renewed: Session = { ...session, tokens: issueTokens(session.user.id) };
-    setSession(renewed);
-    return renewed;
+export async function login(email: string, password: string): Promise<Session> {
+  const res = await apiFetch('/login/', {
+    method: 'POST',
+    body: JSON.stringify({ username: email, password })
   });
-}
-
-export function logout(): Promise<void> {
-  return request(() => {
-    setSession(null);
+  
+  const data = await handleResponse(res);
+  
+  // To get user details we need to hit /me/ because /login/ only gives tokens
+  // but wait, standard TokenObtainPairView only gives { access, refresh }.
+  // Let's do a /me/ call to fetch the user profile.
+  setSession({
+    user: null as any,
+    role: 'STUDENT',
+    profileId: '',
+    tokens: { access: data.access, refresh: data.refresh }
+  }); // Temporary session to authenticate the next call
+  
+  const meRes = await apiFetch('/me/');
+  const meData = await handleResponse(meRes);
+  
+  const fullSession = mapUserResponseToSession({
+    user: meData,
+    access: data.access,
+    refresh: data.refresh
   });
+  
+  setSession(fullSession);
+  return fullSession;
 }
 
-export function me(): Promise<Session> {
-  return request(() => {
-    const session = getSession();
-    if (!session) throw unauthorized();
-    return session;
+export async function loginAsDemo(email: string): Promise<Session> {
+  return login(email, 'demo1234'); // Assumes demo accounts have 'demo1234' as password
+}
+
+import type { StudentRegistration, CompanyRegistration } from './authService.types';
+export type { StudentRegistration, CompanyRegistration };
+
+export async function registerStudent(input: StudentRegistration): Promise<Session> {
+  const res = await apiFetch('/register/student/', {
+    method: 'POST',
+    body: JSON.stringify(input)
   });
+  const data = await handleResponse(res);
+  const session = mapUserResponseToSession(data);
+  setSession(session);
+  return session;
 }
 
-/**
- * Password reset is architected but not delivered in this build: the backend issues a
- * signed, single-use token by email. The UI collects the address and reports the
- * outcome without confirming whether the account exists.
- */
-export function requestPasswordReset(email: string): Promise<{detail: string;}> {
-  return request(() => {
-    if (!email.includes('@')) {
-      throw badRequest({ email: ['Enter a valid email address.'] });
-    }
-    return {
-      detail:
-      'If an account exists for that address, a reset link has been sent. Reset delivery is handled by the backend email service.'
-    };
+export async function registerCompany(input: CompanyRegistration): Promise<Session> {
+  const res = await apiFetch('/register/company/', {
+    method: 'POST',
+    body: JSON.stringify(input)
   });
+  const data = await handleResponse(res);
+  const session = mapUserResponseToSession(data);
+  setSession(session);
+  return session;
 }
 
-export function changeOwnPassword(currentPassword: string, newPassword: string): Promise<void> {
-  return request(() =>
-  write((db) => {
-    const session = getSession();
-    if (!session) throw unauthorized();
-    const credential = db.credentials.find((c) => c.userId === session.user.id);
-    if (!credential) throw notFound('Account not found.');
-    if (credential.password !== currentPassword) {
-      throw badRequest({ currentPassword: ['Your current password is incorrect.'] });
-    }
-    if (newPassword.length < 8) {
-      throw badRequest({ newPassword: ['Password must be at least 8 characters.'] });
-    }
-    credential.password = newPassword;
-  })
-  );
+export async function refresh(): Promise<Session> {
+  const session = getSession();
+  if (!session) throw unauthorized();
+  
+  const res = await apiFetch('/refresh/', {
+    method: 'POST',
+    body: JSON.stringify({ refresh: session.tokens.refresh })
+  });
+  
+  const data = await handleResponse(res);
+  session.tokens.access = data.access;
+  setSession(session);
+  return session;
 }
 
-/** All seeded accounts, for the demo sign-in panel. */
+export async function logout(): Promise<void> {
+  setSession(null);
+}
+
+export async function me(): Promise<Session> {
+  const session = getSession();
+  if (!session) throw unauthorized();
+  return session;
+}
+
+export async function requestPasswordReset(email: string): Promise<{detail: string;}> {
+  return { detail: 'Password reset is not fully implemented on the backend yet.' };
+}
+
+export async function changeOwnPassword(currentPassword: string, newPassword: string): Promise<void> {
+  throw new Error('Not implemented on backend yet.');
+}
+
 export function demoAccounts() {
-  return read((db) =>
-  db.users.map((u) => ({
-    email: u.email,
-    fullName: u.fullName,
-    role: u.role
-  }))
-  );
+  return [
+    { email: 'student@example.com', fullName: 'Demo Student', role: 'STUDENT' },
+    { email: 'company@example.com', fullName: 'Demo Company', role: 'COMPANY' }
+  ];
 }
