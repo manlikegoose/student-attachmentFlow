@@ -41,11 +41,23 @@ interface TokenPayload {
 }
 
 function encode(payload: TokenPayload): string {
+  // Only for mock issueTokens
   return btoa(JSON.stringify(payload)).replace(/=+$/, '');
 }
 
 export function decode(token: string): TokenPayload | null {
   try {
+    const parts = token.split('.');
+    if (parts.length === 3) {
+      // Real JWT
+      const base64Url = parts[1];
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+      }).join(''));
+      return JSON.parse(jsonPayload) as TokenPayload;
+    }
+    // Fallback for mock tokens
     return JSON.parse(atob(token)) as TokenPayload;
   } catch {
     return null;
@@ -55,7 +67,8 @@ export function decode(token: string): TokenPayload | null {
 export function isExpired(token: string): boolean {
   const payload = decode(token);
   if (!payload) return true;
-  return payload.exp <= Date.now();
+  const expMs = payload.exp < 10000000000 ? payload.exp * 1000 : payload.exp;
+  return expMs <= Date.now();
 }
 
 let current: Session | null = restore();
