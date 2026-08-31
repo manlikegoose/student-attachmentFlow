@@ -7,6 +7,7 @@ class User(AbstractUser):
         COMPANY = 'COMPANY', 'Company'
         COORDINATOR = 'COORDINATOR', 'Coordinator'
         SUPERVISOR = 'SUPERVISOR', 'Supervisor'
+        ADMIN = 'ADMIN', 'Admin'
 
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.STUDENT)
 
@@ -40,3 +41,44 @@ class CompanyProfile(models.Model):
 
     def __str__(self):
         return self.name
+
+class SupervisorProfile(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='supervisor_profile')
+    fullName = models.CharField(max_length=255)
+    phone = models.CharField(max_length=20, blank=True)
+    staffNumber = models.CharField(max_length=100)
+    department = models.CharField(max_length=255)
+    faculty = models.CharField(max_length=255)
+    title = models.CharField(max_length=100)
+    capacity = models.IntegerField(default=5)
+    createdAt = models.DateTimeField(auto_now_add=True)
+    updatedAt = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.fullName
+
+class CoordinatorProfile(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='coordinator_profile')
+    fullName = models.CharField(max_length=255)
+    phone = models.CharField(max_length=20, blank=True)
+    staffNumber = models.CharField(max_length=100)
+    department = models.CharField(max_length=255)
+    title = models.CharField(max_length=100)
+    createdAt = models.DateTimeField(auto_now_add=True)
+    updatedAt = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.fullName
+
+class WorkplaceSupervisor(models.Model):
+    company = models.ForeignKey(CompanyProfile, on_delete=models.CASCADE, related_name='workplace_supervisors')
+    fullName = models.CharField(max_length=255)
+    jobTitle = models.CharField(max_length=255)
+    email = models.EmailField()
+    phone = models.CharField(max_length=20, blank=True)
+    department = models.CharField(max_length=255)
+    createdAt = models.DateTimeField(auto_now_add=True)
+    updatedAt = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.fullName

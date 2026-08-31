@@ -44,3 +44,47 @@ class CurrentUserView(generics.RetrieveAPIView):
     def get_object(self):
         return self.request.user
 
+from rest_framework import viewsets
+from .models import StudentProfile, CompanyProfile, SupervisorProfile
+from .serializers import StudentProfileSerializer, CompanyProfileSerializer, SupervisorProfileSerializer
+
+class StudentProfileViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = StudentProfile.objects.all()
+    serializer_class = StudentProfileSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        search = self.request.query_params.get('search')
+        if search:
+            from django.db.models import Q
+            queryset = queryset.filter(
+                Q(fullName__icontains=search) |
+                Q(studentNumber__icontains=search)
+            )
+        return queryset
+
+class CompanyProfileViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = CompanyProfile.objects.all()
+    serializer_class = CompanyProfileSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        search = self.request.query_params.get('search')
+        if search:
+            queryset = queryset.filter(name__icontains=search)
+        return queryset
+
+class SupervisorProfileViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = SupervisorProfile.objects.all()
+    serializer_class = SupervisorProfileSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        search = self.request.query_params.get('search')
+        if search:
+            queryset = queryset.filter(fullName__icontains=search)
+        return queryset
+

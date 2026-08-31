@@ -88,3 +88,102 @@ class CompanyRegistrationSerializer(serializers.Serializer):
                 industry=validated_data['industry']
             )
             return user
+
+class StudentProfileSerializer(serializers.ModelSerializer):
+    email = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = StudentProfile
+        fields = '__all__'
+        
+    def get_email(self, obj):
+        return obj.user.email
+    assigned = serializers.SerializerMethodField()
+    atCapacity = serializers.SerializerMethodField()
+    overCapacity = serializers.SerializerMethodField()
+    activePlacements = serializers.SerializerMethodField()
+    completedPlacements = serializers.SerializerMethodField()
+    pendingEvaluations = serializers.SerializerMethodField()
+
+    def get_assigned(self, obj): return 0
+    def get_atCapacity(self, obj): return False
+    def get_overCapacity(self, obj): return False
+    def get_activePlacements(self, obj): return 0
+    def get_completedPlacements(self, obj): return 0
+    def get_pendingEvaluations(self, obj): return 0
+
+    applicationCount = serializers.SerializerMethodField()
+    placementStatus = serializers.SerializerMethodField()
+    companyName = serializers.SerializerMethodField()
+    documentsApproved = serializers.SerializerMethodField()
+    documentsTotal = serializers.SerializerMethodField()
+
+    def get_applicationCount(self, obj): return 0
+    def get_placementStatus(self, obj): return None
+    def get_companyName(self, obj): return None
+    def get_documentsApproved(self, obj): return 0
+    def get_documentsTotal(self, obj): return 0
+
+
+class CompanyProfileSerializer(serializers.ModelSerializer):
+    email = serializers.SerializerMethodField()
+    logoText = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = CompanyProfile
+        fields = '__all__'
+        
+    def get_email(self, obj):
+        return obj.user.email
+    assigned = serializers.SerializerMethodField()
+    atCapacity = serializers.SerializerMethodField()
+    overCapacity = serializers.SerializerMethodField()
+    activePlacements = serializers.SerializerMethodField()
+    completedPlacements = serializers.SerializerMethodField()
+    pendingEvaluations = serializers.SerializerMethodField()
+
+    def get_assigned(self, obj): return 0
+    def get_atCapacity(self, obj): return False
+    def get_overCapacity(self, obj): return False
+    def get_activePlacements(self, obj): return 0
+    def get_completedPlacements(self, obj): return 0
+    def get_pendingEvaluations(self, obj): return 0
+
+        
+    def get_logoText(self, obj):
+        return obj.name[:2].upper()
+    opportunityCount = serializers.SerializerMethodField()
+    publishedOpportunityCount = serializers.SerializerMethodField()
+    applicantCount = serializers.SerializerMethodField()
+    activeInterns = serializers.SerializerMethodField()
+
+    def get_opportunityCount(self, obj): return 0
+    def get_publishedOpportunityCount(self, obj): return 0
+    def get_applicantCount(self, obj): return 0
+    def get_activeInterns(self, obj): return 0
+
+
+from .models import SupervisorProfile
+class SupervisorProfileSerializer(serializers.ModelSerializer):
+    email = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = SupervisorProfile
+        fields = '__all__'
+        
+    def get_email(self, obj):
+        return obj.user.email
+    assigned = serializers.SerializerMethodField()
+    atCapacity = serializers.SerializerMethodField()
+    overCapacity = serializers.SerializerMethodField()
+    activePlacements = serializers.SerializerMethodField()
+    completedPlacements = serializers.SerializerMethodField()
+    pendingEvaluations = serializers.SerializerMethodField()
+
+    def get_assigned(self, obj): return 0
+    def get_atCapacity(self, obj): return False
+    def get_overCapacity(self, obj): return False
+    def get_activePlacements(self, obj): return 0
+    def get_completedPlacements(self, obj): return 0
+    def get_pendingEvaluations(self, obj): return 0
+
