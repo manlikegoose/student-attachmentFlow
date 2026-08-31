@@ -16,13 +16,44 @@ class ApplicationViewSet(viewsets.ModelViewSet):
         queryset = Application.objects.all().order_by('-submittedAt')
 
         if user.role == User.Role.STUDENT:
-            return queryset.filter(student=user.student_profile)
+            queryset = queryset.filter(student=user.student_profile)
         elif user.role == User.Role.COMPANY:
-            return queryset.filter(company=user.company_profile)
-        elif user.role in [User.Role.COORDINATOR, User.Role.SUPERVISOR, User.Role.ADMIN]:
-            return queryset
+            queryset = queryset.filter(company=user.company_profile)
+        elif user.role not in [User.Role.COORDINATOR, User.Role.SUPERVISOR, User.Role.ADMIN]:
+            return queryset.none()
             
-        return queryset.none()
+        # Apply filters
+        status_param = self.request.query_params.get('status')
+        if status_param:
+            queryset = queryset.filter(status=status_param)
+            
+        student_id = self.request.query_params.get('studentId')
+        if student_id:
+            queryset = queryset.filter(student__id=student_id)
+            
+        company_id = self.request.query_params.get('companyId')
+        if company_id:
+            queryset = queryset.filter(company__id=company_id)
+            
+        opportunity_id = self.request.query_params.get('opportunityId')
+        if opportunity_id:
+            queryset = queryset.filter(opportunity__id=opportunity_id)
+            
+        awaiting = self.request.query_params.get('awaitingUniversityReview')
+        if awaiting and awaiting.lower() == 'true':
+            queryset = queryset.filter(status=Application.Status.UNIVERSITY_REVIEW)
+            
+        search = self.request.query_params.get('search')
+        if search:
+            from django.db.models import Q
+            queryset = queryset.filter(
+                Q(student__fullName__icontains=search) |
+                Q(student__studentNumber__icontains=search) |
+                Q(company__name__icontains=search) |
+                Q(opportunity__title__icontains=search)
+            )
+
+        return queryset
 
     def perform_create(self, serializer):
         user = self.request.user
@@ -146,3 +177,132 @@ class ApplicationViewSet(viewsets.ModelViewSet):
             'placementId': placement_id
         }
         return Response(response_data)
+
+class PlacementViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = PlacementSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        queryset = Placement.objects.all().order_by('-startDate')
+
+        if user.role == User.Role.STUDENT:
+            queryset = queryset.filter(student=user.student_profile)
+        elif user.role == User.Role.COMPANY:
+            queryset = queryset.filter(company=user.company_profile)
+        elif user.role not in [User.Role.COORDINATOR, User.Role.SUPERVISOR, User.Role.ADMIN]:
+            return queryset.none()
+            
+        status_param = self.request.query_params.get('status')
+        if status_param:
+            queryset = queryset.filter(status=status_param)
+            
+        student_id = self.request.query_params.get('studentId')
+        if student_id:
+            queryset = queryset.filter(student__id=student_id)
+            
+        company_id = self.request.query_params.get('companyId')
+        if company_id:
+            queryset = queryset.filter(company__id=company_id)
+            
+        supervisor_id = self.request.query_params.get('supervisorId')
+        if supervisor_id:
+            queryset = queryset.filter(academicSupervisorId=supervisor_id)
+            
+        unassigned = self.request.query_params.get('unassignedOnly')
+        if unassigned and unassigned.lower() == 'true':
+            from django.db.models import Q
+            queryset = queryset.filter(Q(academicSupervisorId__isnull=True) | Q(academicSupervisorId=''))
+            
+        search = self.request.query_params.get('search')
+        if search:
+            from django.db.models import Q
+            queryset = queryset.filter(
+                Q(student__fullName__icontains=search) |
+                Q(student__studentNumber__icontains=search) |
+                Q(company__name__icontains=search)
+            )
+
+        return queryset
+
+    @action(detail=True, methods=['post'], url_path='assign-supervisor')
+    def assign_supervisor(self, request, pk=None):
+        if request.user.role not in [User.Role.COORDINATOR, User.Role.ADMIN]:
+            return Response({'detail': 'Not permitted'}, status=status.HTTP_403_FORBIDDEN)
+            
+        placement = self.get_object()
+        supervisor_id = request.data.get('supervisorId')
+        
+        if not supervisor_id:
+            return Response({'detail': 'Supervisor ID required'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        placement.academicSupervisorId = supervisor_id
+        placement.supervisorAssignedAt = timezone.now()
+        
+        if placement.status == Placement.Status.APPROVED:
+            placement.status = Placement.Status.UPCOMING if placement.startDate > timezone.now().date() else Placement.Status.ACTIVE
+            
+        placement.save()
+        return Response(self.get_serializer(placement).data)
+
+    @action(detail=True, methods=['post'], url_path='workplace-supervisor')
+    def assign_workplace_supervisor(self, request, pk=None):
+        if request.user.role != User.Role.COMPANY:
+            return Response({'detail': 'Not permitted'}, status=status.HTTP_403_FORBIDDEN)
+            
+        placement = self.get_object()
+        if placement.company.user != request.user:
+            return Response({'detail': 'Not permitted'}, status=status.HTTP_403_FORBIDDEN)
+            
+        workplace_supervisor_id = request.data.get('workplaceSupervisorId')
+        if not workplace_supervisor_id:
+            return Response({'detail': 'Workplace Supervisor ID required'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        placement.workplaceSupervisorId = workplace_supervisor_id
+        placement.save()
+        return Response(self.get_serializer(placement).data)
+
+    @action(detail=True, methods=['post'])
+    def activate(self, request, pk=None):
+        if request.user.role not in [User.Role.COORDINATOR, User.Role.ADMIN]:
+            return Response({'detail': 'Not permitted'}, status=status.HTTP_403_FORBIDDEN)
+            
+        placement = self.get_object()
+        if placement.status not in [Placement.Status.APPROVED, Placement.Status.UPCOMING]:
+            return Response({'detail': 'Cannot activate from current state'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        if not placement.academicSupervisorId:
+            return Response({'detail': 'Assign an academic supervisor first'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        placement.status = Placement.Status.ACTIVE
+        placement.save()
+        return Response(self.get_serializer(placement).data)
+
+    @action(detail=True, methods=['post'])
+    def complete(self, request, pk=None):
+        if request.user.role not in [User.Role.COORDINATOR, User.Role.SUPERVISOR, User.Role.ADMIN]:
+            return Response({'detail': 'Not permitted'}, status=status.HTTP_403_FORBIDDEN)
+            
+        placement = self.get_object()
+        # In a real app we would check if supervisor owns this placement, and if evaluation is submitted
+        placement.status = Placement.Status.COMPLETED
+        placement.completedAt = timezone.now()
+        placement.save()
+        return Response(self.get_serializer(placement).data)
+
+    @action(detail=True, methods=['post'])
+    def cancel(self, request, pk=None):
+        if request.user.role not in [User.Role.COORDINATOR, User.Role.ADMIN]:
+            return Response({'detail': 'Not permitted'}, status=status.HTTP_403_FORBIDDEN)
+            
+        placement = self.get_object()
+        if placement.status == Placement.Status.COMPLETED:
+            return Response({'detail': 'Cannot cancel a completed placement'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        reason = request.data.get('reason', '')
+        if not reason.strip():
+            return Response({'reason': ['Required']}, status=status.HTTP_400_BAD_REQUEST)
+            
+        placement.status = Placement.Status.TERMINATED # Django model uses TERMINATED
+        placement.save()
+        return Response(self.get_serializer(placement).data)

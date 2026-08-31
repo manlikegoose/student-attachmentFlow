@@ -54,6 +54,74 @@ class ApplicationSerializer(serializers.ModelSerializer):
         return []
 
 class PlacementSerializer(serializers.ModelSerializer):
+    student = serializers.SerializerMethodField()
+    opportunity = serializers.SerializerMethodField()
+    company = serializers.SerializerMethodField()
+    workplaceSupervisor = serializers.SerializerMethodField()
+    academicSupervisor = serializers.SerializerMethodField()
+    supervisionCount = serializers.SerializerMethodField()
+    lastSupervisionDate = serializers.SerializerMethodField()
+    supervisionOverdue = serializers.SerializerMethodField()
+    evaluation = serializers.SerializerMethodField()
+    progressReportCount = serializers.SerializerMethodField()
+
     class Meta:
         model = Placement
         fields = '__all__'
+        
+    def get_student(self, obj):
+        return {
+            'id': obj.student.id,
+            'fullName': obj.student.fullName,
+            'studentNumber': obj.student.studentNumber,
+            'programme': obj.student.programme,
+            'department': obj.student.user.student_profile.programme,
+            'yearOfStudy': obj.student.yearOfStudy,
+            'email': obj.student.user.email,
+            'phone': obj.student.phone
+        }
+
+    def get_opportunity(self, obj):
+        return {
+            'id': obj.opportunity.id,
+            'title': obj.opportunity.title,
+            'startDate': obj.opportunity.startDate,
+            'endDate': obj.opportunity.endDate,
+            'town': obj.opportunity.town,
+            'workMode': obj.opportunity.workMode,
+            'department': obj.opportunity.department
+        }
+
+    def get_company(self, obj):
+        return {
+            'id': obj.company.id,
+            'name': obj.company.name,
+            'logoText': obj.company.name[:2].upper(),
+            'industry': obj.company.industry,
+            'town': obj.company.town,
+            'location': obj.company.location,
+            'verificationStatus': obj.company.verificationStatus
+        }
+        
+    def get_workplaceSupervisor(self, obj):
+        # We don't have workplace supervisors model yet
+        return None
+        
+    def get_academicSupervisor(self, obj):
+        # We don't have academic supervisors model yet
+        return None
+        
+    def get_supervisionCount(self, obj):
+        return 0
+        
+    def get_lastSupervisionDate(self, obj):
+        return None
+        
+    def get_supervisionOverdue(self, obj):
+        return False
+        
+    def get_evaluation(self, obj):
+        return None
+        
+    def get_progressReportCount(self, obj):
+        return 0

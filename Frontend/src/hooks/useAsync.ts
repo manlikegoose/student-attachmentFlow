@@ -43,6 +43,9 @@ deps: unknown[] = [])
       if (!cancelled && mounted.current) setState({ data, loading: false, error: null });
     }).
     catch((error: unknown) => {
+      if (error instanceof ApiError && error.status === 401) {
+        throw error;
+      }
       if (!cancelled && mounted.current) {
         setState((s) => ({ data: s.data, loading: false, error: errorMessage(error) }));
       }
@@ -80,6 +83,9 @@ action: (...args: TArgs) => Promise<TResult>)
       try {
         return await action(...args);
       } catch (e) {
+        if (e instanceof ApiError && e.status === 401) {
+          throw e;
+        }
         if (e instanceof ApiError) {
           setFieldErrors(e.fieldErrors);
           setError(e.body.detail ?? (Object.keys(e.fieldErrors).length ? null : e.message));
