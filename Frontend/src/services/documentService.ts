@@ -1,34 +1,16 @@
-/**
- * Document service.
- *
- * Endpoint map (future DRF):
- *   GET    /api/documents/            → listDocuments (authorization-scoped)
- *   POST   /api/documents/            → uploadDocument (multipart)
- *   DELETE /api/documents/:id/        → deleteDocument (owner, PENDING only)
- *   POST   /api/documents/:id/review/ → reviewDocument (COORDINATOR)
- *   GET    /api/documents/:id/file/   → signed, authorization-checked download
- *
- * Storage note: the file itself never travels through business logic. Today an object
- * URL is held in the browser; in production the API returns a short-lived signed URL
- * from whichever backend is configured (local, S3, R2, Cloudinary). No caller of this
- * module assumes a storage provider.
- */
-
-import { badRequest, forbidden, notFound } from '../types/api';
+import { apiFetch } from './apiClient';
+import { badRequest, forbidden, notFound, ApiError } from '../types/api';
 import type { DocumentStatus, DocumentType } from '../types/enums';
 import type { DocumentRecord } from '../types/models';
-import { canViewDocument } from '../domain/rules';
-import { nextId, nowISO, pushAudit, pushNotification, read, write } from './store';
-import { request } from './transport';
-import { requireActor, requireRole } from './session';
 
 export const MAX_FILE_BYTES = 5 * 1024 * 1024;
 export const ACCEPTED_MIME_TYPES = [
-'application/pdf',
-'application/msword',
-'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-'image/jpeg',
-'image/png'];
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'image/jpeg',
+  'image/png'
+];
 
 export const ACCEPTED_EXTENSIONS = '.pdf,.doc,.docx,.jpg,.jpeg,.png';
 
@@ -39,36 +21,34 @@ export interface DocumentQuery {
   pendingReviewOnly?: boolean;
 }
 
-export function listDocuments(query: DocumentQuery = {}): Promise<DocumentRecord[]> {
-  return request(() => {
-    const actor = requireActor();
-    return read((db) =>
-    db.documents.
-    filter((d) => canViewDocument(actor, d, db.applications, db.placements)).
-    filter(
-      (d) =>
-      (!query.ownerId || d.ownerId === query.ownerId) && (
-      !query.type || d.type === query.type) && (
-      !query.status || d.status === query.status) && (
-      !query.pendingReviewOnly || d.status === 'PENDING')
-    ).
-    sort((a, b) => a.uploadedAt < b.uploadedAt ? 1 : -1)
-    );
-  });
+async function handleResponse(res: Response) {
+  if (res.ok) {
+    if (res.status === 204) return null;
+    return await res.json();
+  }
+  const data = await res.json().catch(() => null);
+  if (res.status === 400) throw badRequest(data || { detail: ['Invalid request'] });
+  if (res.status === 401 || res.status === 403) throw forbidden(data?.detail || 'Unauthorized');
+  if (res.status === 404) throw notFound(data?.detail || 'Not found');
+  throw new ApiError(res.status, data || { detail: 'Server error', code: 'server_error' });
 }
 
-export function getDocument(id: string): Promise<DocumentRecord> {
-  return request(() => {
-    const actor = requireActor();
-    return read((db) => {
-      const d = db.documents.find((x) => x.id === id);
-      if (!d) throw notFound('Document not found.');
-      if (!canViewDocument(actor, d, db.applications, db.placements)) {
-        throw forbidden('You are not permitted to access this document.');
-      }
-      return d;
-    });
+export async function listDocuments(query: DocumentQuery = {}): Promise<DocumentRecord[]> {
+  const params = new URLSearchParams();
+  Object.entries(query).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) {
+      params.append(key, value.toString());
+    }
   });
+
+  const res = await apiFetch(`/documents/?${params.toString()}`);
+  const data = await handleResponse(res);
+  return Array.isArray(data) ? data : data.results || [];
+}
+
+export async function getDocument(id: string): Promise<DocumentRecord> {
+  const res = await apiFetch(`/documents/${id}/`);
+  return await handleResponse(res);
 }
 
 export interface UploadInput {
@@ -76,108 +56,50 @@ export interface UploadInput {
   file: File;
 }
 
-export function uploadDocument(input: UploadInput): Promise<DocumentRecord> {
-  return request(() => {
-    const actor = requireActor();
-    const { file, type } = input;
-    if (file.size > MAX_FILE_BYTES) {
-      throw badRequest({ file: [`Files must be 5 MB or smaller. This file is ${formatBytes(file.size)}.`] });
-    }
-    if (file.type && !ACCEPTED_MIME_TYPES.includes(file.type)) {
-      throw badRequest({ file: ['Accepted formats are PDF, DOC, DOCX, JPG and PNG.'] });
-    }
-    const previewUrl = URL.createObjectURL(file);
-    return write((db) => {
-      const record: DocumentRecord = {
-        id: nextId('doc'),
-        ownerId: actor.profileId,
-        ownerRole: actor.role,
-        type,
-        filename: file.name,
-        mimeType: file.type || 'application/octet-stream',
-        sizeBytes: file.size,
-        uploadedAt: nowISO(),
-        status: 'PENDING',
-        previewUrl
-      };
-      db.documents.push(record);
-      db.coordinators.forEach((c) =>
-      pushNotification(db, {
-        userId: c.userId,
-        type: 'DOCUMENT',
-        title: 'Document awaiting review',
-        message: `${actor.fullName} uploaded ${file.name}.`,
-        link: '/coordinator/students'
-      })
-      );
-      return record;
-    });
+export async function uploadDocument(input: UploadInput): Promise<DocumentRecord> {
+  const { file, type } = input;
+  if (file.size > MAX_FILE_BYTES) {
+    throw badRequest({ file: [`Files must be 5 MB or smaller. This file is ${formatBytes(file.size)}.`] });
+  }
+  if (file.type && !ACCEPTED_MIME_TYPES.includes(file.type)) {
+    throw badRequest({ file: ['Accepted formats are PDF, DOC, DOCX, JPG and PNG.'] });
+  }
+
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('type', type);
+
+  // We do not use apiFetch here directly because we need to omit the Content-Type header
+  // so the browser can automatically set it to multipart/form-data with the correct boundary
+  const token = localStorage.getItem('accessToken');
+  const res = await fetch('/api/documents/', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`
+    },
+    body: formData
   });
+
+  return await handleResponse(res);
 }
 
-export function deleteDocument(id: string): Promise<void> {
-  return request(() => {
-    const actor = requireActor();
-    write((db) => {
-      const d = db.documents.find((x) => x.id === id);
-      if (!d) throw notFound('Document not found.');
-      if (d.ownerId !== actor.profileId) throw forbidden();
-      if (d.status === 'APPROVED') {
-        throw badRequest({ detail: 'An approved document cannot be removed. Contact the attachment office.' });
-      }
-      const attached = db.applications.some((a) => a.documentIds.includes(id));
-      if (attached) {
-        throw badRequest({ detail: 'This document is attached to an application and cannot be removed.' });
-      }
-      db.documents = db.documents.filter((x) => x.id !== id);
-    });
+export async function deleteDocument(id: string): Promise<void> {
+  const res = await apiFetch(`/documents/${id}/`, {
+    method: 'DELETE'
   });
+  return await handleResponse(res);
 }
 
-export function reviewDocument(
-id: string,
-decision: Extract<DocumentStatus, 'APPROVED' | 'REJECTED'>,
-comment: string)
-: Promise<DocumentRecord> {
-  return request(() => {
-    const actor = requireRole('COORDINATOR', 'ADMIN');
-    return write((db) => {
-      const d = db.documents.find((x) => x.id === id);
-      if (!d) throw notFound('Document not found.');
-      if (decision === 'REJECTED' && !comment.trim()) {
-        throw badRequest({ comment: ['A reason is required when rejecting a document.'] });
-      }
-      d.status = decision;
-      d.reviewedById = actor.profileId;
-      d.reviewedAt = nowISO();
-      d.reviewComment = comment.trim() || null;
-
-      const student = db.students.find((s) => s.id === d.ownerId);
-      if (student) {
-        pushNotification(db, {
-          userId: student.userId,
-          type: 'DOCUMENT',
-          title: decision === 'APPROVED' ? 'Document approved' : 'Document rejected',
-          message:
-          decision === 'APPROVED' ?
-          `${d.filename} was approved by the attachment office.` :
-          `${d.filename} was rejected: ${comment}`,
-          link: '/student/documents'
-        });
-      }
-      pushAudit(db, {
-        actorId: actor.profileId,
-        actorName: actor.fullName,
-        actorRole: actor.role,
-        action: decision === 'APPROVED' ? 'DOCUMENT_APPROVED' : 'DOCUMENT_REJECTED',
-        objectType: 'Document',
-        objectId: d.id,
-        objectLabel: `${student?.fullName ?? 'Owner'} — ${d.filename}`,
-        metadata: comment ? { comment } : undefined
-      });
-      return d;
-    });
+export async function reviewDocument(
+  id: string,
+  decision: Extract<DocumentStatus, 'APPROVED' | 'REJECTED'>,
+  comment: string
+): Promise<DocumentRecord> {
+  const res = await apiFetch(`/documents/${id}/review/`, {
+    method: 'POST',
+    body: JSON.stringify({ decision, comment })
   });
+  return await handleResponse(res);
 }
 
 export function formatBytes(bytes: number): string {
