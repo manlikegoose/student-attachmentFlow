@@ -49,110 +49,12 @@ export interface CoordinatorAnalytics {
   companyParticipation: {name: string;opportunities: number;placements: number;}[];
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+import { apiFetch } from './apiClient';
 
-function lastSupervision(db: Database, placementId: string): string | null {
-  const reports = db.supervisionReports.
-  filter((r) => r.placementId === placementId && r.submitted).
-  sort((a, b) => a.date < b.date ? 1 : -1);
-  return reports[0]?.date ?? null;
-}
-
-export function coordinatorAnalytics(): Promise<CoordinatorAnalytics> {
-  return request(() => {
-    requireRole('COORDINATOR', 'ADMIN');
-    return read((db) => {
-      const placements = db.placements;
-      const overdue = placements.filter((p) =>
-      isSupervisionOverdue(p, lastSupervision(db, p.id))
-      ).length;
-      const completed = placements.filter((p) => p.status === 'COMPLETED').length;
-      const concluded = placements.filter((p) =>
-      ['COMPLETED', 'CANCELLED'].includes(p.status)
-      ).length;
-
-      const byMonth = new Map<string, number>();
-      db.applications.forEach((a) => {
-        const d = new Date(a.submittedAt);
-        const key = `${MONTHS[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`;
-        byMonth.set(key, (byMonth.get(key) ?? 0) + 1);
-      });
-
-      const byProgramme = new Map<string, number>();
-      placements.forEach((p) => {
-        const s = db.students.find((x) => x.id === p.studentId);
-        if (!s) return;
-        byProgramme.set(s.programme, (byProgramme.get(s.programme) ?? 0) + 1);
-      });
-
-      const byStatus = new Map<string, number>();
-      placements.forEach((p) => byStatus.set(p.status, (byStatus.get(p.status) ?? 0) + 1));
-
-      const byIndustry = new Map<string, number>();
-      db.opportunities.
-      filter((o) => o.status === 'PUBLISHED').
-      forEach((o) => byIndustry.set(o.industry, (byIndustry.get(o.industry) ?? 0) + 1));
-
-      return {
-        totals: {
-          students: db.students.length,
-          companies: db.companies.length,
-          verifiedCompanies: db.companies.filter((c) => c.verificationStatus === 'VERIFIED').length,
-          pendingVerification: db.companies.filter(
-            (c) => c.verificationStatus === 'PENDING_VERIFICATION'
-          ).length,
-          activeOpportunities: db.opportunities.filter((o) => o.status === 'PUBLISHED').length,
-          applications: db.applications.length,
-          pendingApplications: db.applications.filter((a) =>
-          ['SUBMITTED', 'UNDER_COMPANY_REVIEW', 'COMPANY_ACCEPTED', 'UNIVERSITY_REVIEW'].includes(
-            a.status
-          )
-          ).length,
-          approvedPlacements: placements.filter((p) =>
-          ['APPROVED', 'UPCOMING'].includes(p.status)
-          ).length,
-          activePlacements: placements.filter((p) => p.status === 'ACTIVE').length,
-          completedPlacements: completed,
-          overdueSupervision: overdue
-        },
-        queues: {
-          companyVerification: db.companies.filter(
-            (c) => c.verificationStatus === 'PENDING_VERIFICATION'
-          ).length,
-          opportunityApproval: db.opportunities.filter((o) => o.status === 'PENDING_APPROVAL').length,
-          universityReview: db.applications.filter((a) => a.status === 'UNIVERSITY_REVIEW').length,
-          unassignedSupervisor: placements.filter(
-            (p) => !p.academicSupervisorId && ['APPROVED', 'UPCOMING', 'ACTIVE'].includes(p.status)
-          ).length,
-          documentReview: db.documents.filter((d) => d.status === 'PENDING').length
-        },
-        completionRate: concluded === 0 ? 0 : Math.round(completed / concluded * 100),
-        applicationsByMonth: Array.from(byMonth, ([name, value]) => ({ name, value })).sort(
-          (a, b) => monthKey(a.name) - monthKey(b.name)
-        ),
-        placementsByProgramme: sortDesc(byProgramme),
-        placementStatus: Array.from(byStatus, ([name, value]) => ({ name, value })),
-        opportunitiesByIndustry: sortDesc(byIndustry),
-        companyParticipation: db.companies.
-        map((c) => ({
-          name: c.name,
-          opportunities: db.opportunities.filter((o) => o.companyId === c.id).length,
-          placements: placements.filter((p) => p.companyId === c.id).length
-        })).
-        filter((row) => row.opportunities > 0).
-        sort((a, b) => b.placements - a.placements || b.opportunities - a.opportunities)
-      };
-    });
-  });
-}
-
-function monthKey(label: string) {
-  const [month, year] = label.split(' ');
-  return Number(year) * 12 + MONTHS.indexOf(month);
-}
-
-function sortDesc(map: Map<string, number>): NamedCount[] {
-  return Array.from(map, ([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+export async function coordinatorAnalytics(): Promise<CoordinatorAnalytics> {
+  const res = await apiFetch('/analytics/coordinator/');
+  if (!res.ok) throw new Error('Failed to fetch analytics');
+  return res.json();
 }
 
 export interface StudentAnalytics {
