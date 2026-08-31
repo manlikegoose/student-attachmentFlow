@@ -22,7 +22,22 @@ import type { Database } from './store';
 import { nextId, nowISO, pushAudit, pushNotification, read, write } from './store';
 import { paginate, request } from './transport';
 import { requireActor, requireRole } from './session';
-import { toStudentBrief } from './applicationService';
+import type { StudentBrief } from '../types/views';
+
+export function toStudentBrief(db: Database, studentId: string): StudentBrief {
+  const s = db.students.find((x) => x.id === studentId);
+  if (!s) throw notFound('Student not found.');
+  return {
+    id: s.id,
+    fullName: s.fullName,
+    studentNumber: s.studentNumber,
+    programme: s.programme,
+    department: s.department,
+    yearOfStudy: s.yearOfStudy,
+    email: s.email,
+    phone: s.phone
+  };
+}
 
 function toSupervisionView(db: Database, r: SupervisionReport): SupervisionReportView {
   const placement = db.placements.find((p) => p.id === r.placementId);

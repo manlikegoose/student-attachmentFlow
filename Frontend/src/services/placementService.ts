@@ -28,8 +28,36 @@ import type { Database } from './store';
 import { nowISO, pushAudit, pushNotification, read, todayISO, write } from './store';
 import { matchesSearch, paginate, request } from './transport';
 import { requireActor, requireRole } from './session';
-import { toCompanyBrief } from './opportunityService';
-import { toStudentBrief } from './applicationService';
+import type { CompanyBrief, StudentBrief } from '../types/views';
+
+export function toCompanyBrief(db: Database, companyId: string): CompanyBrief {
+  const c = db.companies.find((x) => x.id === companyId);
+  if (!c) throw notFound('Company not found.');
+  return {
+    id: c.id,
+    name: c.name,
+    logoText: c.logoText,
+    industry: c.industry,
+    town: c.town,
+    location: c.location,
+    verificationStatus: c.verificationStatus
+  };
+}
+
+export function toStudentBrief(db: Database, studentId: string): StudentBrief {
+  const s = db.students.find((x) => x.id === studentId);
+  if (!s) throw notFound('Student not found.');
+  return {
+    id: s.id,
+    fullName: s.fullName,
+    studentNumber: s.studentNumber,
+    programme: s.programme,
+    department: s.department,
+    yearOfStudy: s.yearOfStudy,
+    email: s.email,
+    phone: s.phone
+  };
+}
 
 export function toPlacementView(db: Database, p: Placement): PlacementView {
   const o = db.opportunities.find((x) => x.id === p.opportunityId);
