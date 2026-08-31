@@ -180,6 +180,9 @@ INSTALLED_APPS = [
     'users',
     'opportunities',
     'applications',
+    'analytics',
+    'documents',
+    'supervision',
 ]
 
 MIDDLEWARE = [
