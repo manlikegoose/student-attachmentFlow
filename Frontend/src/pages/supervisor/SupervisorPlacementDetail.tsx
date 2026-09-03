@@ -21,8 +21,9 @@ import {
 import { SUPERVISION_TYPES, label } from '../../types/enums';
 import type { SupervisionType } from '../../types/enums';
 import { dateRange, formatDate } from '../../utils/format';
-import { todayISO } from '../../services/store';
 import { useToast } from '../../contexts/ToastContext';
+
+const todayISO = () => new Date().toISOString().split('T')[0];
 
 const emptyReport = (placementId: string) => ({
   placementId,

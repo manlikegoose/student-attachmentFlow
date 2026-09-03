@@ -5,7 +5,6 @@ import { ChevronDownIcon, LogOutIcon, MenuIcon, RotateCcwIcon, SettingsIcon } fr
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 import { label } from '../../types/enums';
-import { resetDatabase } from '../../services/store';
 import { Avatar } from '../ui/Avatar';
 import { Dropdown, DropdownItem } from '../ui/Dropdown';
 import { ConfirmDialog } from '../ui/Modal';
@@ -20,7 +19,6 @@ export function AppShell() {
   const location = useLocation();
   const toast = useToast();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [confirmReset, setConfirmReset] = useState(false);
 
   useEffect(() => {
     setDrawerOpen(false);
@@ -132,15 +130,7 @@ export function AppShell() {
                   
                     Settings
                   </DropdownItem>
-                  <DropdownItem
-                  icon={<RotateCcwIcon className="h-4 w-4" />}
-                  onClick={() => {
-                    close();
-                    setConfirmReset(true);
-                  }}>
-                  
-                    Reset demonstration data
-                  </DropdownItem>
+
                   <div className="border-t border-slate-200">
                     <DropdownItem
                     destructive
@@ -165,23 +155,6 @@ export function AppShell() {
             <Outlet />
           </div>
         </main>
-      </div>
-
-      <ConfirmDialog
-        open={confirmReset}
-        title="Reset demonstration data"
-        message="This restores the seeded students, companies, opportunities, applications and placements, discarding anything created during this session. Useful before running the demo again."
-        confirmLabel="Reset data"
-        destructive
-        onCancel={() => setConfirmReset(false)}
-        onConfirm={async () => {
-          resetDatabase();
-          setConfirmReset(false);
-          await logout();
-          toast.success('Demonstration data restored', 'Sign in again to run the workflow from the top.');
-          navigate('/login');
-        }} />
-      
     </div>);
 
 }

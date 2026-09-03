@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { Notification } from '../types/models';
 import * as notificationService from '../services/notificationService';
-import { subscribe } from '../services/store';
+
 import { useAuth } from './AuthContext';
 
 interface NotificationContextValue {
@@ -33,9 +33,8 @@ export function NotificationProvider({ children }: {children: React.ReactNode;})
     reload();
   }, [reload]);
 
-  // Any workflow action anywhere in the app can raise a notification; mirroring the
-  // store keeps the bell honest without polling.
-  useEffect(() => subscribe(reload), [reload]);
+  // When polling or WebSocket is implemented, it would call reload() here.
+  // For now, we rely on manual reloads or route changes.
 
   const markRead = useCallback(
     async (id: string) => {
