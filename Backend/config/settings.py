@@ -183,6 +183,8 @@ INSTALLED_APPS = [
     'analytics',
     'documents',
     'supervision',
+    'notifications',
+    'audit',
 ]
 
 MIDDLEWARE = [
