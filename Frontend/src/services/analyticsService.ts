@@ -9,11 +9,7 @@
  *   GET /api/analytics/supervisor/   → supervisorAnalytics
  */
 
-import { isSupervisionOverdue } from '../domain/rules';
-import type { Database } from './store';
-import { read } from './store';
-import { request } from './transport';
-import { requireRole } from './session';
+import { apiFetch } from './apiClient';
 
 export interface NamedCount {
   name: string;
@@ -49,8 +45,6 @@ export interface CoordinatorAnalytics {
   companyParticipation: {name: string;opportunities: number;placements: number;}[];
 }
 
-import { apiFetch } from './apiClient';
-
 export async function coordinatorAnalytics(): Promise<CoordinatorAnalytics> {
   const res = await apiFetch('/analytics/coordinator/');
   if (!res.ok) throw new Error('Failed to fetch analytics');
@@ -66,30 +60,10 @@ export interface StudentAnalytics {
   documentsRejected: number;
 }
 
-export function studentAnalytics(): Promise<StudentAnalytics> {
-  return request(() => {
-    const actor = requireRole('STUDENT');
-    return read((db) => {
-      const mine = db.applications.filter((a) => a.studentId === actor.profileId);
-      const byStatus = new Map<string, number>();
-      mine.forEach((a) => byStatus.set(a.status, (byStatus.get(a.status) ?? 0) + 1));
-      const docs = db.documents.filter((d) => d.ownerId === actor.profileId);
-      return {
-        applicationStatus: Array.from(byStatus, ([name, value]) => ({ name, value })),
-        totalApplications: mine.length,
-        pendingApplications: mine.filter((a) =>
-        ['SUBMITTED', 'UNDER_COMPANY_REVIEW', 'COMPANY_ACCEPTED', 'UNIVERSITY_REVIEW'].includes(
-          a.status
-        )
-        ).length,
-        acceptedApplications: mine.filter((a) =>
-        ['COMPANY_ACCEPTED', 'UNIVERSITY_REVIEW', 'UNIVERSITY_APPROVED'].includes(a.status)
-        ).length,
-        documentsPending: docs.filter((d) => d.status === 'PENDING').length,
-        documentsRejected: docs.filter((d) => d.status === 'REJECTED').length
-      };
-    });
-  });
+export async function studentAnalytics(): Promise<StudentAnalytics> {
+  const res = await apiFetch('/analytics/student/');
+  if (!res.ok) throw new Error('Failed to fetch analytics');
+  return res.json();
 }
 
 export interface CompanyAnalytics {
@@ -103,46 +77,10 @@ export interface CompanyAnalytics {
   decisionSplit: NamedCount[];
 }
 
-export function companyAnalytics(): Promise<CompanyAnalytics> {
-  return request(() => {
-    const actor = requireRole('COMPANY');
-    return read((db) => {
-      const opps = db.opportunities.filter((o) => o.companyId === actor.profileId);
-      const apps = db.applications.filter((a) => a.companyId === actor.profileId);
-      const placements = db.placements.filter((p) => p.companyId === actor.profileId);
-      return {
-        activeOpportunities: opps.filter((o) => o.status === 'PUBLISHED').length,
-        totalApplicants: apps.length,
-        pendingReviews: apps.filter((a) =>
-        ['SUBMITTED', 'UNDER_COMPANY_REVIEW'].includes(a.status)
-        ).length,
-        acceptedStudents: apps.filter((a) =>
-        ['UNIVERSITY_REVIEW', 'UNIVERSITY_APPROVED'].includes(a.status)
-        ).length,
-        activeInterns: placements.filter((p) => p.status === 'ACTIVE').length,
-        completedInternships: placements.filter((p) => p.status === 'COMPLETED').length,
-        applicationsPerOpportunity: opps.
-        filter((o) => o.status !== 'DRAFT').
-        map((o) => ({
-          name: o.title.replace(/ Attachment.*/, ''),
-          value: apps.filter((a) => a.opportunityId === o.id).length
-        })),
-        decisionSplit: [
-        {
-          name: 'Accepted',
-          value: apps.filter((a) =>
-          ['UNIVERSITY_REVIEW', 'UNIVERSITY_APPROVED'].includes(a.status)
-          ).length
-        },
-        { name: 'Declined', value: apps.filter((a) => a.status === 'COMPANY_REJECTED').length },
-        {
-          name: 'Awaiting review',
-          value: apps.filter((a) => ['SUBMITTED', 'UNDER_COMPANY_REVIEW'].includes(a.status)).length
-        }]
-
-      };
-    });
-  });
+export async function companyAnalytics(): Promise<CompanyAnalytics> {
+  const res = await apiFetch('/analytics/company/');
+  if (!res.ok) throw new Error('Failed to fetch analytics');
+  return res.json();
 }
 
 export interface SupervisorAnalytics {
@@ -156,28 +94,8 @@ export interface SupervisorAnalytics {
   progressReportsAwaitingFeedback: number;
 }
 
-export function supervisorAnalytics(): Promise<SupervisorAnalytics> {
-  return request(() => {
-    const actor = requireRole('SUPERVISOR');
-    return read((db) => {
-      const mine = db.placements.filter((p) => p.academicSupervisorId === actor.profileId);
-      const active = mine.filter((p) => p.status === 'ACTIVE');
-      const overdue = active.filter((p) => isSupervisionOverdue(p, lastSupervision(db, p.id)));
-      const noSupervisionYet = active.filter((p) => !lastSupervision(db, p.id));
-      return {
-        assignedStudents: mine.filter((p) => p.status !== 'CANCELLED').length,
-        activePlacements: active.length,
-        upcomingPlacements: mine.filter((p) => p.status === 'UPCOMING').length,
-        completedPlacements: mine.filter((p) => p.status === 'COMPLETED').length,
-        requiringSupervision: new Set([...overdue, ...noSupervisionYet].map((p) => p.id)).size,
-        overdueSupervision: overdue.length,
-        pendingEvaluations: active.filter(
-          (p) => !db.evaluations.some((e) => e.placementId === p.id && e.locked)
-        ).length,
-        progressReportsAwaitingFeedback: db.progressReports.filter(
-          (r) => mine.some((p) => p.id === r.placementId) && !r.supervisorFeedback
-        ).length
-      };
-    });
-  });
+export async function supervisorAnalytics(): Promise<SupervisorAnalytics> {
+  const res = await apiFetch('/analytics/supervisor/');
+  if (!res.ok) throw new Error('Failed to fetch analytics');
+  return res.json();
 }
