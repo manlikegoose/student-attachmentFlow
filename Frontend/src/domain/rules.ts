@@ -446,7 +446,7 @@ documents: DocumentRecord[])
   { label: 'Date of birth', done: !!profile.dateOfBirth },
   { label: 'Academic details', done: !!profile.department && !!profile.programme },
   { label: 'Professional summary', done: !!profile.bio && profile.bio.length > 40 },
-  { label: 'At least three skills', done: profile.skills.length >= 3 },
+  { label: 'At least three skills', done: (profile.skills?.length || 0) >= 3 },
   { label: 'CV uploaded', done: documents.some((d) => d.type === 'CV') },
   {
     label: 'Introduction letter uploaded',

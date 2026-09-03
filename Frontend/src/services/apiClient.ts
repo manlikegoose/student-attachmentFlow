@@ -9,7 +9,7 @@ async function refreshTokens(): Promise<string | null> {
   }
   
   try {
-    const res = await fetch(`${API_BASE}/auth/refresh/`, {
+    const res = await fetch(`${API_BASE}/refresh/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refresh: session.tokens.refresh }),
@@ -34,9 +34,10 @@ export async function apiFetch(endpoint: string, options: RequestInit = {}): Pro
 
   // Optimistic refresh check
   if (token && isExpired(token)) {
-    token = await refreshTokens() || undefined;
+    token = (await refreshTokens()) || undefined;
     if (!token) {
       setSession(null);
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('auth:logout'));
     }
   }
 
@@ -56,7 +57,7 @@ export async function apiFetch(endpoint: string, options: RequestInit = {}): Pro
 
   // Handle 401
   if (response.status === 401 && token) {
-    token = await refreshTokens() || undefined;
+    token = (await refreshTokens()) || undefined;
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
       response = await fetch(`${API_BASE}${endpoint}`, {
@@ -65,6 +66,7 @@ export async function apiFetch(endpoint: string, options: RequestInit = {}): Pro
       });
     } else {
       setSession(null);
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('auth:logout'));
     }
   }
 

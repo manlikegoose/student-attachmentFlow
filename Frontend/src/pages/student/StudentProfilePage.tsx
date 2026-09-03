@@ -49,7 +49,7 @@ export function StudentProfilePage() {
       expectedGraduation: p.expectedGraduation,
       bio: p.bio ?? ''
     });
-    setSkills(p.skills);
+    setSkills(p.skills || []);
   }, [profile.data]);
 
   const save = useMutation(async () => {

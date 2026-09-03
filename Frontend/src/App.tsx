@@ -6,11 +6,7 @@ import { ToastProvider } from './contexts/ToastContext';
 import { AppShell } from './components/layout/AppShell';
 import { ProtectedRoute } from './components/layout/ProtectedRoute';
 
-// Test connection to the new Django backend
-fetch('http://localhost:8000/api/health/')
-  .then(res => res.json())
-  .then(data => console.log('Backend connection successful:', data))
-  .catch(err => console.error('Backend connection failed:', err));
+// Application starting point
 
 import { Landing } from './pages/public/Landing';
 import { Login } from './pages/public/Login';

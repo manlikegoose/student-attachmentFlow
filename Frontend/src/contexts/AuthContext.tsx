@@ -61,8 +61,15 @@ export function AuthProvider({ children }: {children: React.ReactNode;}) {
         setSession(null);
       }
     };
+    const onLogout = () => setSession(null);
+
     window.addEventListener('unhandledrejection', onRejection);
-    return () => window.removeEventListener('unhandledrejection', onRejection);
+    window.addEventListener('auth:logout', onLogout);
+    
+    return () => {
+      window.removeEventListener('unhandledrejection', onRejection);
+      window.removeEventListener('auth:logout', onLogout);
+    };
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
