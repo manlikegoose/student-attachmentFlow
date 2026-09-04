@@ -154,7 +154,8 @@ export function AppShell() {
           <div className="mx-auto w-full max-w-[85rem]">
             <Outlet />
           </div>
-        </main>
-    </div>);
-
+           </main>
+      </div>
+    </div>
+  );
 }
