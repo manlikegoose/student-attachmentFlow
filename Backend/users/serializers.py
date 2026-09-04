@@ -163,7 +163,13 @@ class CompanyProfileSerializer(serializers.ModelSerializer):
     def get_activeInterns(self, obj): return 0
 
 
-from .models import SupervisorProfile
+from .models import SupervisorProfile, WorkplaceSupervisor
+
+class WorkplaceSupervisorSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WorkplaceSupervisor
+        fields = '__all__'
+
 class SupervisorProfileSerializer(serializers.ModelSerializer):
     email = serializers.SerializerMethodField()
     

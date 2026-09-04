@@ -1,5 +1,6 @@
 import { apiFetch } from './apiClient';
-import { badRequest, forbidden, notFound, ApiError } from '../types/api';
+import { badRequest, forbidden, notFound, unauthorized, ApiError } from '../types/api';
+import { getSession } from './session';
 import type { PageQuery, Paginated } from '../types/api';
 import type { CompanyVerificationStatus } from '../types/enums';
 import type {
@@ -65,10 +66,10 @@ export async function getStudent(id: string): Promise<StudentProfile> {
 }
 
 export async function getMyStudentProfile(): Promise<StudentProfile> {
-  // Assuming the user's profile is returned on the me/ endpoint or we query by user
-  // We can fetch from /me/ and then get the profile, or fetch from students endpoint using token.
-  const res = await listStudents({ pageSize: 1 });
-  return res.results[0] as unknown as StudentProfile;
+  const session = getSession();
+  if (!session) throw unauthorized();
+  const id = session.profileId.split('-')[1];
+  return getStudent(id);
 }
 
 export type StudentProfileUpdate = Partial<
@@ -135,8 +136,10 @@ export async function getCompany(id: string): Promise<CompanyProfile> {
 }
 
 export async function getMyCompanyProfile(): Promise<CompanyProfile> {
-  const res = await listCompanies({ pageSize: 1 });
-  return res.results[0] as unknown as CompanyProfile;
+  const session = getSession();
+  if (!session) throw unauthorized();
+  const id = session.profileId.split('-')[1];
+  return getCompany(id);
 }
 
 export type CompanyProfileUpdate = Partial<
