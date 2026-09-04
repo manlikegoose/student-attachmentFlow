@@ -234,10 +234,13 @@ class SupervisorAnalyticsView(APIView):
 
     def get(self, request):
         user = request.user
-        if user.role != User.Role.SUPERVISOR:
-            return Response({'detail': 'Forbidden'}, status=403)
+        if not hasattr(user, 'supervisor_profile'):
+            return Response({
+                "assignedStudents": 0, "activePlacements": 0, "upcomingPlacements": 0, "completedPlacements": 0,
+                "requiringSupervision": 0, "overdueSupervision": 0, "pendingEvaluations": 0, "progressReportsAwaitingFeedback": 0
+            })
             
-        sup_id = f"sup-{user.supervisor_profile.id}"
+        sup_id = str(user.supervisor_profile.id)
         
         mine = Placement.objects.filter(academicSupervisorId=sup_id)
         active = mine.filter(status='ACTIVE')

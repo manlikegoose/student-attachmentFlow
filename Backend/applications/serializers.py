@@ -104,24 +104,74 @@ class PlacementSerializer(serializers.ModelSerializer):
         }
         
     def get_workplaceSupervisor(self, obj):
-        # We don't have workplace supervisors model yet
+        from users.models import WorkplaceSupervisor
+        if obj.workplaceSupervisorId:
+            try:
+                sup = WorkplaceSupervisor.objects.get(id=obj.workplaceSupervisorId)
+                return {
+                    'id': sup.id,
+                    'name': sup.name,
+                    'email': sup.email,
+                    'phone': sup.phone,
+                    'designation': sup.designation,
+                    'companyId': sup.company.id
+                }
+            except WorkplaceSupervisor.DoesNotExist:
+                return None
         return None
         
     def get_academicSupervisor(self, obj):
-        # We don't have academic supervisors model yet
+        from users.models import SupervisorProfile
+        if obj.academicSupervisorId:
+            try:
+                sup = SupervisorProfile.objects.get(id=obj.academicSupervisorId)
+                return {
+                    'id': sup.id,
+                    'name': sup.user.get_full_name(),
+                    'email': sup.user.email,
+                    'department': sup.department,
+                    'atCapacity': False
+                }
+            except SupervisorProfile.DoesNotExist:
+                return None
         return None
         
     def get_supervisionCount(self, obj):
-        return 0
+        from supervision.models import SupervisionReport
+        return SupervisionReport.objects.filter(placementId=obj.id, submitted=True).count()
         
     def get_lastSupervisionDate(self, obj):
+        from supervision.models import SupervisionReport
+        last_report = SupervisionReport.objects.filter(placementId=obj.id, submitted=True).order_by('-date').first()
+        if last_report:
+            return last_report.date
         return None
         
     def get_supervisionOverdue(self, obj):
+        # Simplistic logic: Overdue if active for 30+ days and no supervision, or 30+ days since last supervision
+        from supervision.models import SupervisionReport
+        from django.utils import timezone
+        import datetime
+        if obj.status != 'ACTIVE':
+            return False
+            
+        last_report = SupervisionReport.objects.filter(placementId=obj.id, submitted=True).order_by('-date').first()
+        if last_report:
+            diff = timezone.now().date() - last_report.date
+            return diff.days > 30
+        else:
+            diff = timezone.now().date() - obj.startDate
+            return diff.days > 30
         return False
         
     def get_evaluation(self, obj):
+        from supervision.models import Evaluation
+        from supervision.serializers import EvaluationSerializer
+        eval = Evaluation.objects.filter(placementId=obj.id).first()
+        if eval:
+            return EvaluationSerializer(eval).data
         return None
         
     def get_progressReportCount(self, obj):
-        return 0
+        from supervision.models import ProgressReport
+        return ProgressReport.objects.filter(placementId=obj.id).count()

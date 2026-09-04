@@ -190,7 +190,12 @@ class PlacementViewSet(viewsets.ReadOnlyModelViewSet):
             queryset = queryset.filter(student=user.student_profile)
         elif user.role == User.Role.COMPANY:
             queryset = queryset.filter(company=user.company_profile)
-        elif user.role not in [User.Role.COORDINATOR, User.Role.SUPERVISOR, User.Role.ADMIN]:
+        elif user.role == User.Role.SUPERVISOR:
+            if hasattr(user, 'supervisor_profile'):
+                queryset = queryset.filter(academicSupervisorId=str(user.supervisor_profile.id))
+            else:
+                return queryset.none()
+        elif user.role not in [User.Role.COORDINATOR, User.Role.ADMIN]:
             return queryset.none()
             
         status_param = self.request.query_params.get('status')
